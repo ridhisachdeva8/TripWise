@@ -22,8 +22,7 @@ import { getCoordinates } from "../utils/geocoding";
 import "leaflet/dist/leaflet.css";
 import TripMap from "../components/sections/TripMap";
 import BudgetChart from "../components/sections/BudgetChart";
-
-
+import { regenerateDay } from "../api/tripApi";
 
 const TripSummary = () => {
   const navigate = useNavigate();
@@ -43,6 +42,57 @@ const TripSummary = () => {
     longitude: number;
   } | null>(null);
 
+  const [regeneratingDay, setRegeneratingDay] = useState<number | null>(null);
+
+  const [regeneratedDays, setRegeneratedDays] = useState<
+    //Record<number, ...> TypeScript ka type hai jo batata hai ki object ke numeric keys ke saamne itinerary-day objects honge.
+    Record<number, {
+      day: number;
+      morning: string;
+      afternoon: string;
+      evening: string;
+      estimatedCost: number;
+    }>
+  >({});
+
+  const [regenerationError, setRegenerationError] = useState<{
+    day: number;
+    message: string;
+  } | null>(null);
+
+  const handleRegenerateDay = async (
+    day: {
+      day: number;
+      morning: string;
+      afternoon: string;
+      evening: string;
+      estimatedCost: number;
+    }
+  ) => {
+    if (!trip) return;
+
+    setRegeneratingDay(day.day);
+    setRegenerationError(null);
+
+    try {
+      const response = await regenerateDay(trip, day.day, day);
+      const newDay = JSON.parse(response.data);
+
+      setRegeneratedDays((previous) => ({
+        ...previous,
+        [day.day]: newDay,
+      }));
+    } catch (error) {
+      console.error("Failed to regenerate day:", error);
+
+      setRegenerationError({
+        day: day.day,
+        message: `Could not regenerate Day ${day.day}. Please try again.`,
+      });
+    } finally {
+      setRegeneratingDay(null);
+    }
+  }
   useEffect(() => {
     //".?" is called optional chaining.
     if (trip?.destination) {
@@ -64,6 +114,18 @@ const TripSummary = () => {
   } catch (error) {
     console.error("Failed to parse AI itinerary:", error);
   }
+
+  const totalEstimatedCost =
+  aiTrip?.itinary?.reduce(
+    (
+      total:number,
+      day: { day: number; estimatedCost: number }
+    )=> {
+      const currentDay= regeneratedDays[day.day]?? day;
+      return total + (Number(currentDay.estimatedCost)||0);
+    },
+    0
+  )??0;
 
   console.log("ITINERARY:", itinerary);
   console.log("AI TRIP:", aiTrip);
@@ -202,42 +264,62 @@ const TripSummary = () => {
                 afternoon: string;
                 evening: string;
                 estimatedCost: number;
-              }) => (
-                <Card key={day.day} elevation={2}>
-                  <CardContent>
-                    <Typography
-                      variant="h6"
-                      sx={{
-                        fontWeight: 700,
-                        mb: 2,
-                      }}
-                    >
-                      Day {day.day}
-                    </Typography>
+              }) => {
+                const currentDay = regeneratedDays[day.day] ?? day;
+                return (
+                  <Card key={day.day} elevation={2}>
+                    <CardContent>
+                      <Typography
+                        variant="h6"
+                        sx={{
+                          fontWeight: 700,
+                          mb: 2,
+                        }}
+                      >
+                        Day {currentDay.day}
+                      </Typography>
 
-                    <Typography sx={{ mb: 1 }}>
-                      <strong>Morning:</strong> {day.morning}
-                    </Typography>
+                      <Typography sx={{ mb: 1 }}>
+                        <strong>Morning:</strong> {currentDay.morning}
+                      </Typography>
 
-                    <Typography sx={{ mb: 1 }}>
-                      <strong>Afternoon:</strong> {day.afternoon}
-                    </Typography>
+                      <Typography sx={{ mb: 1 }}>
+                        <strong>Afternoon:</strong> {currentDay.afternoon}
+                      </Typography>
 
-                    <Typography sx={{ mb: 1 }}>
-                      <strong>Evening:</strong> {day.evening}
-                    </Typography>
+                      <Typography sx={{ mb: 1 }}>
+                        <strong>Evening:</strong> {currentDay.evening}
+                      </Typography>
 
-                    <Typography
-                      sx={{
-                        mt: 2,
-                        fontWeight: 700,
-                      }}
-                    >
-                      💰 Estimated Cost: ₹{day.estimatedCost.toLocaleString()}
-                    </Typography>
-                  </CardContent>
-                </Card>
-              ),
+                      <Typography
+                        sx={{
+                          mt: 2,
+                          fontWeight: 700,
+                        }}
+                      >
+                        💰 Estimated Cost: ₹{currentDay.estimatedCost.toLocaleString()}
+                      </Typography>
+
+                      <Button
+                        variant="contained"
+                        onClick={() => handleRegenerateDay(day)}
+                        disabled={regeneratingDay === day.day}
+                      >
+                        {regeneratingDay === day.day
+                          ? "Regenerating Day..."
+                          : "Regenerate Day"}
+                      </Button>
+
+                      {regenerationError?.day === day.day &&(
+                        <Typography color="error" sx={{ mt: 1 }}>
+                          {regenerationError.message}
+                        </Typography>
+                      )}
+
+                    </CardContent>
+                  </Card>
+                );
+              },
             )}
           </Stack>
 
@@ -341,12 +423,13 @@ const TripSummary = () => {
 
                     <Typography sx={{ fontWeight: 700 }}>
                       ₹
-                      {(
+                      {/* {(
                         aiTrip?.budgetBreakdown?.stay +
                         aiTrip?.budgetBreakdown?.food +
                         aiTrip?.budgetBreakdown?.activities +
                         aiTrip?.budgetBreakdown?.transport
-                      )?.toLocaleString()}
+                      )?.toLocaleString()} */}
+                      {totalEstimatedCost.toLocaleString("en-IN")}
                     </Typography>
                   </Box>
                 </Stack>

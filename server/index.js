@@ -207,7 +207,7 @@ app.post("/api/generate-trip", async (req, res) => {
 
     console.log("Response received from OpenRouter!");
     console.log("AI MESSAGE:", response.choices[0].message);
-    
+
     res.json({
       message: "Trip data recieved",
       data: response.choices[0].message.content,
@@ -217,6 +217,106 @@ app.post("/api/generate-trip", async (req, res) => {
 
     res.status(500).json({
       message: "Failed to generate itinerary",
+      error: error.message,
+    });
+  }
+});
+
+// Regenerate a single day of the itinerary
+app.post("/api/regenerate-day", async (req, res) => {
+  const { tripData, selectedDay, currentDay } = req.body;
+
+  if (!tripData || !selectedDay || !currentDay) {
+    return res.status(400).json({
+      message: "Trip details, selected day and current day are required.",
+    });
+  }
+
+  const prompt = `
+    Regenerate ONLY day ${selectedDay} of this travel itinerary.
+
+    Trip details:
+    Destination: ${tripData.destination}
+    Total budget: ${tripData.budget} INR
+    Start date: ${tripData.startDate}
+    End date: ${tripData.endDate}
+    Travelers: ${tripData.travelers}
+    Travel type: ${tripData.travelType}
+
+    Current day:
+    ${JSON.stringify(currentDay)}
+
+    Create fresh, useful activities appropriate for the destination
+    and travel type. Make the activities different from the current
+    plan where practical.
+
+    Return ONLY valid JSON with exactly these fields:
+    {
+      "day": ${selectedDay},
+      "morning": "Morning activity",
+      "afternoon": "Afternoon activity",
+      "evening": "Evening activity",
+      "estimatedCost": 0
+    }
+
+    All costs must be numbers in INR.
+    Keep the day number unchanged.
+    Do not include any other days or additional fields.
+  `;
+
+  try {
+    console.log(`Regenerating day ${selectedDay}...`);
+
+    const response = await client.chat.completions.create({
+      model: "openrouter/free",
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "regenerated_day",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              day: { type: "number" },
+              morning: { type: "string" },
+              afternoon: { type: "string" },
+              evening: { type: "string" },
+              estimatedCost: { type: "number" },
+            },
+            required: [
+              "day",
+              "morning",
+              "afternoon",
+              "evening",
+              "estimatedCost",
+            ],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+
+    const content = response.choices[0]?.message?.content;
+
+    if (!content) {
+      throw new Error("AI returned an empty response.");
+    }
+
+    res.json({
+      message: "Day regenerated successfully",
+      data: content,
+    });
+  } catch (error) {
+    console.error("Day regeneration error:", error);
+
+    res.status(500).json({
+      message: "Failed to regenerate day",
       error: error.message,
     });
   }
