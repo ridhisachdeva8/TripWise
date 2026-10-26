@@ -9,13 +9,13 @@ import Testimonials from "../components/sections/Testimonials"
 function Home() {
   return (
     <div>
-        <Navbar />
-        <Hero />
-        <Features />
-        <Destinations />
-        <HowItWorks />
-        <Testimonials />
-        <Footer />
+      <Navbar />
+      <Hero />
+      <Features />
+      <Destinations />
+      <HowItWorks />
+      <Testimonials />
+      <Footer />
     </div>
   )
 }

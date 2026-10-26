@@ -62,6 +62,21 @@ const CreateTrip = () => {
       console.log("API Response:", _response);
       console.log("Form Data:", variables);
 
+      const savedTrip = {
+        id: Date.now(),
+        trip: variables,
+        itinerary: _response.data,
+        createdAt: new Date().toISOString(),
+      };
+
+      const existingTrips = JSON.parse(
+        localStorage.getItem("tripwise-trips") || "[]"
+      );
+
+      localStorage.setItem(
+        "tripwise-trips",
+        JSON.stringify([...existingTrips, savedTrip])
+      );
       //success hote hi state update hogi.
       setSnackbarMessage("Trip Created Successfully!");
       setSnackbarSeverity("success");

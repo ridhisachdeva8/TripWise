@@ -31,11 +31,34 @@ const TripSummary = () => {
     | {
       trip: CreateTripFormData;
       itinerary: string;
+      savedTripId?: number;
     }
-    | undefined;
+    | null;
 
-  const trip = state?.trip;
-  const itinerary = state?.itinerary;
+  const savedTripId = state?.savedTripId;
+
+  const savedTrips = (() => {
+    try {
+      return JSON.parse(
+        localStorage.getItem("tripwise-trips") || "[]"
+      ) as {
+        id: number;
+        trip: CreateTripFormData;
+        itinerary: string;
+      }[];
+    } catch (error) {
+      console.error("Failed to read saved trips:", error);
+      return [];
+    }
+  })();
+
+  const savedTrip = savedTripId
+    ? savedTrips.find((item) => item.id === savedTripId)
+    : undefined;
+
+  const trip = state?.trip ?? savedTrip?.trip;
+  const itinerary = state?.itinerary ?? savedTrip?.itinerary;
+
 
   const [coordinates, setCoordinates] = useState<{
     latitude: number;
@@ -116,16 +139,16 @@ const TripSummary = () => {
   }
 
   const totalEstimatedCost =
-  aiTrip?.itinary?.reduce(
-    (
-      total:number,
-      day: { day: number; estimatedCost: number }
-    )=> {
-      const currentDay= regeneratedDays[day.day]?? day;
-      return total + (Number(currentDay.estimatedCost)||0);
-    },
-    0
-  )??0;
+    aiTrip?.itinerary?.reduce(
+      (
+        total: number,
+        day: { day: number; estimatedCost: number }
+      ) => {
+        const currentDay = regeneratedDays[day.day] ?? day;
+        return total + (Number(currentDay.estimatedCost) || 0);
+      },
+      0
+    ) ?? 0;
 
   console.log("ITINERARY:", itinerary);
   console.log("AI TRIP:", aiTrip);
@@ -310,7 +333,7 @@ const TripSummary = () => {
                           : "Regenerate Day"}
                       </Button>
 
-                      {regenerationError?.day === day.day &&(
+                      {regenerationError?.day === day.day && (
                         <Typography color="error" sx={{ mt: 1 }}>
                           {regenerationError.message}
                         </Typography>
