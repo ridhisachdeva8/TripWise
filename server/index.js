@@ -52,6 +52,12 @@ app.post("/api/generate-trip", async (req, res) => {
     "morning": "Morning activity",
     "afternoon": "Afternoon activity",
     "evening": "Evening activity",
+     "places": [
+      {
+        "name": "Actual place name",
+        "activity": "What to do at this place"
+      }
+    ],
     "estimatedCost": 0
     }
     ],
@@ -89,6 +95,13 @@ app.post("/api/generate-trip", async (req, res) => {
 - All cost values must be numbers, not strings.
 - duration and day must be numbers.
 - Do not invent extremely expensive costs that are unrealistic for the given budget.
+- For each itinerary day, generate a places array.
+- Include actual, named places relevant to the requested destination.
+- Each place must have a name and an activity description.
+- Do not include generic activities such as "have lunch" as places.
+- Keep place names specific enough to find on a map.
+- Include only places relevant to that day's morning, afternoon, or evening activities.
+- Do not use a fixed list of destinations or attractions.
     `;
 
   // const response= await client.responses.create({
@@ -151,6 +164,22 @@ app.post("/api/generate-trip", async (req, res) => {
                     evening: {
                       type: "string",
                     },
+                    places: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          name: {
+                            type: "string",
+                          },
+                          activity: {
+                            type: "string",
+                          },
+                        },
+                        required: ["name", "activity"],
+                        additionalProperties: false,
+                      },
+                    },
                     estimatedCost: {
                       type: "number",
                     },
@@ -160,6 +189,7 @@ app.post("/api/generate-trip", async (req, res) => {
                     "morning",
                     "afternoon",
                     "evening",
+                    "places",
                     "estimatedCost",
                   ],
                   additionalProperties: false,
@@ -256,6 +286,12 @@ app.post("/api/regenerate-day", async (req, res) => {
       "morning": "Morning activity",
       "afternoon": "Afternoon activity",
       "evening": "Evening activity",
+      "places": [
+  {
+    "name": "Actual place name",
+    "activity": "Activity at this place"
+  }
+],
       "estimatedCost": 0
     }
 
@@ -287,6 +323,18 @@ app.post("/api/regenerate-day", async (req, res) => {
               morning: { type: "string" },
               afternoon: { type: "string" },
               evening: { type: "string" },
+              places: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    activity: { type: "string" },
+                  },
+                  required: ["name", "activity"],
+                  additionalProperties: false,
+                },
+              },
               estimatedCost: { type: "number" },
             },
             required: [
@@ -294,6 +342,7 @@ app.post("/api/regenerate-day", async (req, res) => {
               "morning",
               "afternoon",
               "evening",
+              "places",
               "estimatedCost",
             ],
             additionalProperties: false,

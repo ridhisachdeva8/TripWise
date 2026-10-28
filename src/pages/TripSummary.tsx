@@ -16,32 +16,57 @@ import CurrencyRupeeIcon from "@mui/icons-material/CurrencyRupee";
 import PeopleIcon from "@mui/icons-material/People";
 import FlightTakeoffIcon from "@mui/icons-material/FlightTakeoff";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { getCoordinates } from "../utils/geocoding";
 //import { destinations } from "../constants/destinations";
 import "leaflet/dist/leaflet.css";
-import TripMap from "../components/sections/TripMap";
+import TripMap, { type MapPlace } from "../components/sections/TripMap";
 import BudgetChart from "../components/sections/BudgetChart";
 import { regenerateDay } from "../api/tripApi";
+
+type AIPlace = {
+  name: string;
+  activity: string;
+};
+
+type AIDay = {
+  day: number;
+  morning: string;
+  afternoon: string;
+  evening: string;
+  places: AIPlace[];
+  estimatedCost: number;
+};
+
+type AITrip = {
+  tripTitle?: string;
+  vibe?: string;
+  packingList?: string[];
+  tips?: string[];
+  budgetBreakdown?: {
+    stay: number;
+    food: number;
+    transport: number;
+    activities: number;
+  };
+  itinerary: AIDay[];
+  [key: string]: unknown;
+};
 
 const TripSummary = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const state = location.state as
-    | {
-      trip: CreateTripFormData;
-      itinerary: string;
-      savedTripId?: number;
-    }
-    | null;
+  const state = location.state as {
+    trip: CreateTripFormData;
+    itinerary: string;
+    savedTripId?: number;
+  } | null;
 
   const savedTripId = state?.savedTripId;
 
   const savedTrips = (() => {
     try {
-      return JSON.parse(
-        localStorage.getItem("tripwise-trips") || "[]"
-      ) as {
+      return JSON.parse(localStorage.getItem("tripwise-trips") || "[]") as {
         id: number;
         trip: CreateTripFormData;
         itinerary: string;
@@ -59,23 +84,35 @@ const TripSummary = () => {
   const trip = state?.trip ?? savedTrip?.trip;
   const itinerary = state?.itinerary ?? savedTrip?.itinerary;
 
+  const aiTrip = useMemo<AITrip | null>(() => {
+    try {
+      return itinerary ? (JSON.parse(itinerary) as AITrip) : null;
+    } catch (error) {
+      console.error("Failed to parse AI itinerary:", error);
+      return null;
+    }
+  }, [itinerary]);
 
   const [coordinates, setCoordinates] = useState<{
     latitude: number;
     longitude: number;
   } | null>(null);
 
+  const [mapPlaces, setMapPlaces] = useState<MapPlace[]>([]);
   const [regeneratingDay, setRegeneratingDay] = useState<number | null>(null);
 
   const [regeneratedDays, setRegeneratedDays] = useState<
     //Record<number, ...> TypeScript ka type hai jo batata hai ki object ke numeric keys ke saamne itinerary-day objects honge.
-    Record<number, {
-      day: number;
-      morning: string;
-      afternoon: string;
-      evening: string;
-      estimatedCost: number;
-    }>
+    Record<
+      number,
+      {
+        day: number;
+        morning: string;
+        afternoon: string;
+        evening: string;
+        estimatedCost: number;
+      }
+    >
   >({});
 
   const [regenerationError, setRegenerationError] = useState<{
@@ -83,15 +120,13 @@ const TripSummary = () => {
     message: string;
   } | null>(null);
 
-  const handleRegenerateDay = async (
-    day: {
-      day: number;
-      morning: string;
-      afternoon: string;
-      evening: string;
-      estimatedCost: number;
-    }
-  ) => {
+  const handleRegenerateDay = async (day: {
+    day: number;
+    morning: string;
+    afternoon: string;
+    evening: string;
+    estimatedCost: number;
+  }) => {
     if (!trip) return;
 
     setRegeneratingDay(day.day);
@@ -115,7 +150,16 @@ const TripSummary = () => {
     } finally {
       setRegeneratingDay(null);
     }
-  }
+  };
+
+  //JSON.parse() us string ko JavaScript object bana dega Phir fhum easily UI bana sakenge.
+  // let aiTrip;
+  // try {
+  //   aiTrip = itinerary ? JSON.parse(itinerary) : null;
+  // } catch (error) {
+  //   console.error("Failed to parse AI itinerary:", error);
+  // }
+
   useEffect(() => {
     //".?" is called optional chaining.
     if (trip?.destination) {
@@ -130,24 +174,59 @@ const TripSummary = () => {
     }
   }, [trip?.destination]);
 
-  //JSON.parse() us string ko JavaScript object bana dega Phir fhum easily UI bana sakenge.
-  let aiTrip;
-  try {
-    aiTrip = itinerary ? JSON.parse(itinerary) : null;
-  } catch (error) {
-    console.error("Failed to parse AI itinerary:", error);
-  }
+  useEffect(() => {
+    const days = aiTrip?.itinerary;
+
+    if (!days?.length) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadMapPlaces = async () => {
+      const results: MapPlace[] = [];
+      console.log("AI itinerary:", aiTrip?.itinerary);
+
+      for (const day of days) {
+        for (const place of day.places ?? []) {
+          try {
+            const coords = await getCoordinates(
+              `${place.name}, ${trip?.destination ?? ""}, India`,
+            );
+
+            results.push({
+              id: `${day.day}-${place.name}`,
+              name: place.name,
+              latitude: coords.latitude,
+              longitude: coords.longitude,
+              day: day.day,
+            });
+          } catch (error) {
+            console.error(`Could not locate ${place.name}:`, error);
+          }
+        }
+      }
+
+      console.log("Map places:", results);
+      if (!cancelled) {
+        setMapPlaces(results);
+      }
+    };
+
+    loadMapPlaces();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [aiTrip?.itinerary, trip?.destination]);
 
   const totalEstimatedCost =
     aiTrip?.itinerary?.reduce(
-      (
-        total: number,
-        day: { day: number; estimatedCost: number }
-      ) => {
+      (total: number, day: { day: number; estimatedCost: number }) => {
         const currentDay = regeneratedDays[day.day] ?? day;
         return total + (Number(currentDay.estimatedCost) || 0);
       },
-      0
+      0,
     ) ?? 0;
 
   console.log("ITINERARY:", itinerary);
@@ -247,6 +326,7 @@ const TripSummary = () => {
                 latitude={coordinates.latitude}
                 longitude={coordinates.longitude}
                 destination={trip.destination}
+                places={mapPlaces}
               />
             ) : (
               <Typography color="text.secondary">
@@ -320,7 +400,8 @@ const TripSummary = () => {
                           fontWeight: 700,
                         }}
                       >
-                        💰 Estimated Cost: ₹{currentDay.estimatedCost.toLocaleString()}
+                        💰 Estimated Cost: ₹
+                        {currentDay.estimatedCost.toLocaleString()}
                       </Typography>
 
                       <Button
@@ -338,7 +419,6 @@ const TripSummary = () => {
                           {regenerationError.message}
                         </Typography>
                       )}
-
                     </CardContent>
                   </Card>
                 );
@@ -362,15 +442,10 @@ const TripSummary = () => {
             {aiTrip?.budgetBreakdown && (
               <Card elevation={2}>
                 <CardContent>
-                  <Typography
-                    variant="h6"
-                    sx={{ fontWeight: 700, mb: 2 }}
-                  >
+                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
                     Budget Visualization
                   </Typography>
-                  <BudgetChart
-                    budgetBreakdown={aiTrip.budgetBreakdown}
-                  />
+                  <BudgetChart budgetBreakdown={aiTrip.budgetBreakdown} />
                 </CardContent>
               </Card>
             )}
