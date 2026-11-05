@@ -20,6 +20,7 @@ app.use(cors());
 //Backend ko bol rahe hain ki agar request mein JSON data aaye, toh usse read/understand karna.
 app.use(express.json());
 
+const ORS_API_KEY = process.env.OPENROUTESERVICE_API_KEY;
 const PORT = 5000;
 
 app.post("/api/generate-trip", async (req, res) => {
@@ -52,6 +53,12 @@ app.post("/api/generate-trip", async (req, res) => {
     "morning": "Morning activity",
     "afternoon": "Afternoon activity",
     "evening": "Evening activity",
+     "places": [
+      {
+        "name": "Actual place name",
+        "activity": "What to do at this place"
+      }
+    ],
     "estimatedCost": 0
     }
     ],
@@ -89,6 +96,13 @@ app.post("/api/generate-trip", async (req, res) => {
 - All cost values must be numbers, not strings.
 - duration and day must be numbers.
 - Do not invent extremely expensive costs that are unrealistic for the given budget.
+- For each itinerary day, generate a places array.
+- Include actual, named places relevant to the requested destination.
+- Each place must have a name and an activity description.
+- Do not include generic activities such as "have lunch" as places.
+- Keep place names specific enough to find on a map.
+- Include only places relevant to that day's morning, afternoon, or evening activities.
+- Do not use a fixed list of destinations or attractions.
     `;
 
   // const response= await client.responses.create({
@@ -151,6 +165,22 @@ app.post("/api/generate-trip", async (req, res) => {
                     evening: {
                       type: "string",
                     },
+                    places: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          name: {
+                            type: "string",
+                          },
+                          activity: {
+                            type: "string",
+                          },
+                        },
+                        required: ["name", "activity"],
+                        additionalProperties: false,
+                      },
+                    },
                     estimatedCost: {
                       type: "number",
                     },
@@ -160,6 +190,7 @@ app.post("/api/generate-trip", async (req, res) => {
                     "morning",
                     "afternoon",
                     "evening",
+                    "places",
                     "estimatedCost",
                   ],
                   additionalProperties: false,
@@ -256,6 +287,12 @@ app.post("/api/regenerate-day", async (req, res) => {
       "morning": "Morning activity",
       "afternoon": "Afternoon activity",
       "evening": "Evening activity",
+      "places": [
+  {
+    "name": "Actual place name",
+    "activity": "Activity at this place"
+  }
+],
       "estimatedCost": 0
     }
 
@@ -287,6 +324,18 @@ app.post("/api/regenerate-day", async (req, res) => {
               morning: { type: "string" },
               afternoon: { type: "string" },
               evening: { type: "string" },
+              places: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    activity: { type: "string" },
+                  },
+                  required: ["name", "activity"],
+                  additionalProperties: false,
+                },
+              },
               estimatedCost: { type: "number" },
             },
             required: [
@@ -294,6 +343,7 @@ app.post("/api/regenerate-day", async (req, res) => {
               "morning",
               "afternoon",
               "evening",
+              "places",
               "estimatedCost",
             ],
             additionalProperties: false,
@@ -317,6 +367,112 @@ app.post("/api/regenerate-day", async (req, res) => {
 
     res.status(500).json({
       message: "Failed to regenerate day",
+      error: error.message,
+    });
+  }
+});
+
+// Get coordinates of a place using Nominatim
+app.get("/api/geocode", async (req, res) => {
+  try {
+    const { place } = req.query;
+
+    if (!place) {
+      return res.status(400).json({
+        message: "Place name is required.",
+      });
+    }
+
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(place)}`,
+      {
+        headers: {
+          "User-Agent": "TripWise/1.0",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        message: "Geocoding service failed.",
+      });
+    }
+
+    const data = await response.json();
+
+    if (!data.length) {
+      return res.status(404).json({
+        message: `Location not found: ${place}`,
+      });
+    }
+
+    res.json({
+      latitude: Number(data[0].lat),
+      longitude: Number(data[0].lon),
+    });
+  } catch (error) {
+    console.error("Geocoding Error:", error);
+
+    res.status(500).json({
+      message: "Failed to fetch coordinates.",
+    });
+  }
+});
+
+// Get road route between places
+app.post("/api/get-route", async (req, res) => {
+  try {
+    const { coordinates } = req.body;
+
+    if (!coordinates || coordinates.length < 2) {
+      return res.status(400).json({
+        message: "At least two locations are required.",
+      });
+    }
+
+    if (!ORS_API_KEY) {
+      return res.status(500).json({
+        message: "OpenRouteService API key is missing.",
+      });
+    }
+
+    const response = await fetch(
+      "https://api.openrouteservice.org/v2/directions/driving-car/geojson",
+      {
+        method: "POST",
+        headers: {
+          Authorization: ORS_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          coordinates,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        message: "Failed to fetch road route.",
+        error: data,
+      });
+    }
+
+    const feature = data.features[0];
+
+    res.json({
+      coordinates: feature.geometry.coordinates.map(
+        ([longitude, latitude]) => [latitude, longitude]
+      ),
+      distance: feature.properties.summary.distance,
+      duration: feature.properties.summary.duration,
+    });
+  } catch (error) {
+    console.error("Route API Error:", error);
+
+    res.status(500).json({
+      message: "Failed to generate route.",
       error: error.message,
     });
   }
