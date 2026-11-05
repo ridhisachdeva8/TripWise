@@ -33,3 +33,13 @@ export const regenerateDay = async (
 
   return response.data;
 };
+
+export const getRoute = async (
+  coordinates: [number, number][]
+) => {
+  const response = await apiClient.post("/api/get-route", {
+    coordinates,
+  });
+
+  return response.data;
+};

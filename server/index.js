@@ -20,6 +20,7 @@ app.use(cors());
 //Backend ko bol rahe hain ki agar request mein JSON data aaye, toh usse read/understand karna.
 app.use(express.json());
 
+const ORS_API_KEY = process.env.OPENROUTESERVICE_API_KEY;
 const PORT = 5000;
 
 app.post("/api/generate-trip", async (req, res) => {
@@ -366,6 +367,112 @@ app.post("/api/regenerate-day", async (req, res) => {
 
     res.status(500).json({
       message: "Failed to regenerate day",
+      error: error.message,
+    });
+  }
+});
+
+// Get coordinates of a place using Nominatim
+app.get("/api/geocode", async (req, res) => {
+  try {
+    const { place } = req.query;
+
+    if (!place) {
+      return res.status(400).json({
+        message: "Place name is required.",
+      });
+    }
+
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(place)}`,
+      {
+        headers: {
+          "User-Agent": "TripWise/1.0",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        message: "Geocoding service failed.",
+      });
+    }
+
+    const data = await response.json();
+
+    if (!data.length) {
+      return res.status(404).json({
+        message: `Location not found: ${place}`,
+      });
+    }
+
+    res.json({
+      latitude: Number(data[0].lat),
+      longitude: Number(data[0].lon),
+    });
+  } catch (error) {
+    console.error("Geocoding Error:", error);
+
+    res.status(500).json({
+      message: "Failed to fetch coordinates.",
+    });
+  }
+});
+
+// Get road route between places
+app.post("/api/get-route", async (req, res) => {
+  try {
+    const { coordinates } = req.body;
+
+    if (!coordinates || coordinates.length < 2) {
+      return res.status(400).json({
+        message: "At least two locations are required.",
+      });
+    }
+
+    if (!ORS_API_KEY) {
+      return res.status(500).json({
+        message: "OpenRouteService API key is missing.",
+      });
+    }
+
+    const response = await fetch(
+      "https://api.openrouteservice.org/v2/directions/driving-car/geojson",
+      {
+        method: "POST",
+        headers: {
+          Authorization: ORS_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          coordinates,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        message: "Failed to fetch road route.",
+        error: data,
+      });
+    }
+
+    const feature = data.features[0];
+
+    res.json({
+      coordinates: feature.geometry.coordinates.map(
+        ([longitude, latitude]) => [latitude, longitude]
+      ),
+      distance: feature.properties.summary.distance,
+      duration: feature.properties.summary.duration,
+    });
+  } catch (error) {
+    console.error("Route API Error:", error);
+
+    res.status(500).json({
+      message: "Failed to generate route.",
       error: error.message,
     });
   }

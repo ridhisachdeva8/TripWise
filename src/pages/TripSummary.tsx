@@ -22,7 +22,7 @@ import { getCoordinates } from "../utils/geocoding";
 import "leaflet/dist/leaflet.css";
 import TripMap, { type MapPlace } from "../components/sections/TripMap";
 import BudgetChart from "../components/sections/BudgetChart";
-import { regenerateDay } from "../api/tripApi";
+import { regenerateDay, getRoute } from "../api/tripApi";
 
 type AIPlace = {
   name: string;
@@ -84,6 +84,11 @@ const TripSummary = () => {
   const trip = state?.trip ?? savedTrip?.trip;
   const itinerary = state?.itinerary ?? savedTrip?.itinerary;
 
+  console.log("FULL LOCATION STATE:", location.state);
+  console.log("SAVED TRIPS:", savedTrips);
+  console.log("SAVED TRIP:", savedTrip);
+  console.log("ITINERARY STRING:", itinerary);
+
   const aiTrip = useMemo<AITrip | null>(() => {
     try {
       return itinerary ? (JSON.parse(itinerary) as AITrip) : null;
@@ -99,6 +104,11 @@ const TripSummary = () => {
   } | null>(null);
 
   const [mapPlaces, setMapPlaces] = useState<MapPlace[]>([]);
+
+  const [routes, setRoutes] = useState<
+    Record<number, [number, number][]>
+  >({});
+
   const [regeneratingDay, setRegeneratingDay] = useState<number | null>(null);
 
   const [regeneratedDays, setRegeneratedDays] = useState<
@@ -190,6 +200,8 @@ const TripSummary = () => {
       for (const day of days) {
         for (const place of day.places ?? []) {
           try {
+            await new Promise((resolve) => setTimeout(resolve, 1100));
+            
             const coords = await getCoordinates(
               `${place.name}, ${trip?.destination ?? ""}, India`,
             );
@@ -208,6 +220,10 @@ const TripSummary = () => {
       }
 
       console.log("Map places:", results);
+      console.log(
+        "Available map days:",
+        [...new Set(results.map((place) => place.day))]
+      );
       if (!cancelled) {
         setMapPlaces(results);
       }
@@ -220,6 +236,48 @@ const TripSummary = () => {
     };
   }, [aiTrip?.itinerary, trip?.destination]);
 
+  useEffect(() => {
+    if (mapPlaces.length === 0) return;
+
+    let cancelled = false;
+
+    const loadRoutes = async () => {
+      const routeResults: Record<number, [number, number][]> = {};
+
+      const days = [...new Set(mapPlaces.map((place) => place.day))];
+
+      for (const day of days) {
+        const dayPlaces = mapPlaces.filter(
+          (place) => place.day === day
+        );
+
+        if (dayPlaces.length < 2) continue;
+
+        try {
+          const coordinates: [number, number][] = dayPlaces.map(
+            (place) => [place.longitude, place.latitude]
+          );
+
+          const response = await getRoute(coordinates);
+
+          routeResults[day] = response.coordinates;
+        } catch (error) {
+          console.error(`Route generation failed for Day ${day}:`, error);
+        }
+      }
+
+      if (!cancelled) {
+        setRoutes(routeResults);
+      }
+    };
+
+    loadRoutes();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mapPlaces]);
+
   const totalEstimatedCost =
     aiTrip?.itinerary?.reduce(
       (total: number, day: { day: number; estimatedCost: number }) => {
@@ -231,6 +289,10 @@ const TripSummary = () => {
 
   console.log("ITINERARY:", itinerary);
   console.log("AI TRIP:", aiTrip);
+  console.log("Budget:", aiTrip?.budgetBreakdown);
+  console.log("Packing List:", aiTrip?.packingList);
+  console.log("Tips:", aiTrip?.tips);
+  console.log("Total Cost:", totalEstimatedCost);
 
   console.log("Location State:", location.state);
 
@@ -327,6 +389,7 @@ const TripSummary = () => {
                 longitude={coordinates.longitude}
                 destination={trip.destination}
                 places={mapPlaces}
+                routes={routes}
               />
             ) : (
               <Typography color="text.secondary">
